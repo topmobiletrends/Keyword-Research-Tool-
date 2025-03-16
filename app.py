@@ -1,10 +1,13 @@
-from flask import Flask, request, render_template, send_file
+from flask import Flask, request, render_template, send_file, session
 import requests
 import pandas as pd
 import logging
 from io import StringIO
 
 app = Flask(__name__)
+
+# Set a secret key for sessions
+app.secret_key = "your_secret_key_here"  # Replace with a secure secret key
 
 # Set up logging
 logging.basicConfig(level=logging.DEBUG)
@@ -36,7 +39,7 @@ def index():
             csv_buffer.seek(0)
 
             # Store the CSV content in the session for download
-            request.session["csv_data"] = csv_buffer.getvalue()
+            session["csv_data"] = csv_buffer.getvalue()
 
             return render_template("index.html", results=metrics, query=query)
 
@@ -73,7 +76,7 @@ def generate_metrics(keywords):
 @app.route("/download")
 def download():
     # Retrieve the CSV data from the session
-    csv_data = request.session.get("csv_data", "")
+    csv_data = session.get("csv_data", "")
     if not csv_data:
         return "No data available for download.", 404
 
