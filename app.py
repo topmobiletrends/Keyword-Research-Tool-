@@ -2,6 +2,7 @@ from flask import Flask, request, render_template, send_file
 import requests
 import pandas as pd
 import logging
+from io import StringIO
 
 app = Flask(__name__)
 
@@ -26,11 +27,16 @@ def index():
             app.logger.debug("Generating metrics")
             metrics = generate_metrics(keywords)
 
-            # Convert to DataFrame for CSV export
+            # Convert to DataFrame
             df = pd.DataFrame(metrics)
 
-            # Save to CSV
-            df.to_csv("keyword_results.csv", index=False)
+            # Save to an in-memory CSV file
+            csv_buffer = StringIO()
+            df.to_csv(csv_buffer, index=False)
+            csv_buffer.seek(0)
+
+            # Store the CSV content in the session for download
+            request.session["csv_data"] = csv_buffer.getvalue()
 
             return render_template("index.html", results=metrics, query=query)
 
@@ -38,6 +44,9 @@ def index():
         app.logger.debug("Rendering form")
         return render_template("index.html")
 
+    except requests.exceptions.RequestException as e:
+        app.logger.error(f"Request error: {e}")
+        return render_template("index.html", error="Failed to fetch keyword suggestions. Please try again.")
     except Exception as e:
         app.logger.error(f"Unexpected error: {e}")
         return render_template("index.html", error="An unexpected error occurred. Please try again.")
@@ -63,7 +72,19 @@ def generate_metrics(keywords):
 
 @app.route("/download")
 def download():
-    return send_file("keyword_results.csv", as_attachment=True)
+    # Retrieve the CSV data from the session
+    csv_data = request.session.get("csv_data", "")
+    if not csv_data:
+        return "No data available for download.", 404
+
+    # Create an in-memory file for download
+    csv_buffer = StringIO(csv_data)
+    return send_file(
+        csv_buffer,
+        mimetype="text/csv",
+        as_attachment=True,
+        download_name="keyword_results.csv"
+    )
 
 if __name__ == "__main__":
     app.run(debug=True)
