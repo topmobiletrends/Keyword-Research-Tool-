@@ -1,93 +1,76 @@
-from flask import Flask, request, render_template, send_file, session
+from flask import Flask, request, render_template
 import requests
-import pandas as pd
-import logging
-from io import StringIO
 
 app = Flask(__name__)
 
-# Set a secret key for sessions
-app.secret_key = "your_secret_key_here"  # Replace with a secure secret key
+# Function to fetch keyword suggestions from Google Suggest API
+def get_keyword_suggestions(query):
+    clients = ["firefox", "chrome", "youtube"]
+    all_keywords = []
 
-# Set up logging
-logging.basicConfig(level=logging.DEBUG)
+    for client in clients:
+        url = f"http://suggestqueries.google.com/complete/search?client={client}&q={query}"
+        try:
+            response = requests.get(url)
+            response.raise_for_status()  # Raise an error for bad status codes
+            if response.text:  # Check if the response is not empty
+                keywords = response.json()[1]  # Extract the keyword suggestions
+                all_keywords.extend(keywords)
+            else:
+                print(f"Empty response for client: {client}")
+        except requests.exceptions.RequestException as e:
+            print(f"Error fetching suggestions for client: {client}. Error: {e}")
+        except ValueError as e:
+            print(f"Invalid JSON response for client: {client}. Error: {e}")
+
+    # If no keywords are found, use default suggestions
+    if not all_keywords:
+        print("Using default suggestions.")
+        all_keywords = [
+            f"{query} free",
+            f"{query} best",
+            f"{query} online",
+            f"{query} 2023",
+            f"{query} tool",
+            f"{query} guide",
+            f"{query} tips",
+            f"{query} tutorial",
+            f"{query} for beginners",
+            f"{query} examples"
+        ]
+
+    # Remove duplicates
+    all_keywords = list(set(all_keywords))
+    return all_keywords
+
+# Function to generate long-tail keywords
+def get_long_tail_keywords(query):
+    modifiers = [
+        "free", "best", "how to", "online", "2023", "tool", "guide", "tips",
+        "cheap", "easy", "quick", "top", "review", "download", "software",
+        "tutorial", "for beginners", "vs", "alternatives", "examples"
+    ]
+    return [f"{query} {modifier}" for modifier in modifiers]
 
 @app.route("/", methods=["GET", "POST"])
 def index():
-    try:
-        if request.method == "POST":
-            query = request.form.get("query")
-            if not query:
-                return render_template("index.html", error="Please enter a keyword or phrase.")
-
-            # Get keyword suggestions
-            app.logger.debug(f"Fetching keyword suggestions for: {query}")
-            keywords = get_keyword_suggestions(query)
-            if not keywords:
-                return render_template("index.html", error="No keywords found. Please try again.")
-
-            # Generate metrics
-            app.logger.debug("Generating metrics")
-            metrics = generate_metrics(keywords)
-
-            # Convert to DataFrame
-            df = pd.DataFrame(metrics)
-
-            # Save to an in-memory CSV file
-            csv_buffer = StringIO()
-            df.to_csv(csv_buffer, index=False)
-            csv_buffer.seek(0)
-
-            # Store the CSV content in the session for download
-            session["csv_data"] = csv_buffer.getvalue()
-
-            return render_template("index.html", results=metrics, query=query)
-
-        # Render the form for GET requests
-        app.logger.debug("Rendering form")
-        return render_template("index.html")
-
-    except requests.exceptions.RequestException as e:
-        app.logger.error(f"Request error: {e}")
-        return render_template("index.html", error="Failed to fetch keyword suggestions. Please try again.")
-    except Exception as e:
-        app.logger.error(f"Unexpected error: {e}")
-        return render_template("index.html", error="An unexpected error occurred. Please try again.")
-
-# Function to fetch keyword suggestions
-def get_keyword_suggestions(query):
-    url = f"http://suggestqueries.google.com/complete/search?client=firefox&q={query}"
-    response = requests.get(url, timeout=5)  # Add a timeout
-    if response.status_code == 200:
-        return response.json()[1]
-    return []
-
-# Function to generate dummy search volume and difficulty
-def generate_metrics(keywords):
-    metrics = []
-    for keyword in keywords:
-        metrics.append({
-            "Keyword": keyword,
-            "Search Volume": f"{len(keyword) * 100}",  # Dummy search volume
-            "Difficulty": "Low" if len(keyword) < 10 else "Medium" if len(keyword) < 20 else "High"  # Dummy difficulty
-        })
-    return metrics
-
-@app.route("/download")
-def download():
-    # Retrieve the CSV data from the session
-    csv_data = session.get("csv_data", "")
-    if not csv_data:
-        return "No data available for download.", 404
-
-    # Create an in-memory file for download
-    csv_buffer = StringIO(csv_data)
-    return send_file(
-        csv_buffer,
-        mimetype="text/csv",
-        as_attachment=True,
-        download_name="keyword_results.csv"
-    )
+    if request.method == "POST":
+        query = request.form.get("query")
+        if not query:
+            return render_template("index.html", error="Please enter a keyword or phrase.")
+        
+        # Fetch keyword suggestions
+        keywords = get_keyword_suggestions(query)
+        if not keywords:
+            return render_template("index.html", error="No keywords found. Please try again.")
+        
+        # Add long-tail keywords
+        long_tail_keywords = get_long_tail_keywords(query)
+        all_keywords = keywords + long_tail_keywords
+        
+        return render_template("index.html", results=all_keywords, query=query)
+    
+    return render_template("index.html")
 
 if __name__ == "__main__":
     app.run(debug=True)
